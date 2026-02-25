@@ -16,19 +16,30 @@ enum AppleScriptHelper {
 
         if let password = password, !password.isEmpty {
             // 从 Swift 端创建临时启动脚本 — 密码只存在于文件中，不出现在终端命令行
-            guard let launcherPath = createLauncherScript(sshCmd: sshCmd, password: password) else {
+            guard
+                let launcherPath = createLauncherScript(
+                    sshCmd: sshCmd, password: password, title: connection.name)
+            else {
                 return .failure(
                     NSError(
                         domain: "AppleScript", code: -3,
                         userInfo: [NSLocalizedDescriptionKey: "无法创建临时脚本"]))
             }
 
-            // AppleScript 只执行一个干净的命令，密码完全隐藏
+            // AppleScript: 执行脚本 → 短暂等待 → 清除滚动缓冲并设置标题
             script = """
                 tell application "Terminal"
                     activate
-                    do script "clear; bash '\(launcherPath)'"
-                    set custom title of front window to "\(safeName)"
+                    do script "bash '\(launcherPath)'"
+                    delay 0.3
+                    tell front window
+                        set custom title to "\(safeName)"
+                    end tell
+                end tell
+                tell application "System Events"
+                    tell process "Terminal"
+                        keystroke "k" using command down
+                    end tell
                 end tell
                 """
         } else {
@@ -36,8 +47,7 @@ enum AppleScriptHelper {
             script = """
                 tell application "Terminal"
                     activate
-                    do script "clear && \(sshCmd); exit"
-                    set custom title of front window to "\(safeName)"
+                    do script "printf '\\\\e]0;\(safeName)\\\\a' && clear && \(sshCmd); exit"
                 end tell
                 """
         }
@@ -52,8 +62,7 @@ enum AppleScriptHelper {
         let script = """
             tell application "Terminal"
                 activate
-                do script "clear && \(connection.sshCommand); exit"
-                set custom title of front window to "\(safeName)"
+                do script "printf '\\\\e]0;\(safeName)\\\\a' && clear && \(connection.sshCommand); exit"
             end tell
             """
         return executeAppleScript(script)
@@ -63,7 +72,9 @@ enum AppleScriptHelper {
 
     /// 创建临时启动脚本 — 包含 askpass 创建、SSH 执行、自动清理
     /// 所有敏感信息（密码）仅存在于临时文件中，终端命令行只显示 `bash /tmp/xxx.sh`
-    private static func createLauncherScript(sshCmd: String, password: String) -> String? {
+    private static func createLauncherScript(sshCmd: String, password: String, title: String)
+        -> String?
+    {
         let pid = ProcessInfo.processInfo.processIdentifier
         let random = Int.random(in: 100000...999999)
         let launcherPath = "/tmp/.sshqc_launcher_\(pid)_\(random).sh"
@@ -71,14 +82,11 @@ enum AppleScriptHelper {
 
         // 转义密码中的单引号: ' → '\''
         let escapedPwd = password.replacingOccurrences(of: "'", with: "'\\''")
+        // 转义标题中的单引号
+        let escapedTitle = title.replacingOccurrences(of: "'", with: "'\\''")
 
         let scriptContent = """
             #!/bin/bash
-            # 注册 trap — 无论正常退出、关闭窗口(SIGHUP)还是中断(SIGINT)，都确保清理临时文件
-            cleanup() {
-                rm -f '\(askpassPath)' '\(launcherPath)'
-            }
-            trap cleanup EXIT HUP INT TERM
 
             # 创建 askpass 脚本
             cat > '\(askpassPath)' << 'ASKPASS_EOF'
@@ -87,9 +95,11 @@ enum AppleScriptHelper {
             ASKPASS_EOF
             chmod 700 '\(askpassPath)'
 
-            # 执行 SSH（SSH_ASKPASS_REQUIRE=force 强制使用 askpass，即使有 TTY）
-            SSH_ASKPASS='\(askpassPath)' SSH_ASKPASS_REQUIRE=force DISPLAY=:0 \(sshCmd)
-            # trap 会在脚本退出时自动执行 cleanup
+            # 后台延时清理临时文件（给 SSH 足够时间完成认证后删除）
+            (sleep 10 && rm -f '\(askpassPath)' '\(launcherPath)') &
+
+            # 用 exec 替换当前 bash 进程为 ssh，这样进程树中不再包含脚本文件名
+            exec env SSH_ASKPASS='\(askpassPath)' SSH_ASKPASS_REQUIRE=force DISPLAY=:0 \(sshCmd)
             """
 
         do {
