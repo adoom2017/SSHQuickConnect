@@ -81,6 +81,12 @@ struct SidebarView: View {
                             }
 
                             Button {
+                                viewModel.connectViaTerminal(to: connection, context: modelContext)
+                            } label: {
+                                Label("在终端中打开", systemImage: "apple.terminal")
+                            }
+
+                            Button {
                                 viewModel.copyCommand(for: connection)
                             } label: {
                                 Label("复制命令", systemImage: "doc.on.doc")
@@ -149,12 +155,6 @@ struct ConnectionRow: View {
             }
 
             Spacer()
-
-            if let lastDate = connection.lastConnectedAt {
-                Text(lastDate, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
         }
         .padding(.vertical, 4)
     }
@@ -189,7 +189,10 @@ struct DetailView: View {
     }
 
     var body: some View {
-        if let connection = selectedConnection {
+        if viewModel.hasOpenSessions {
+            // 显示多标签终端
+            SSHTerminalView(viewModel: viewModel)
+        } else if let connection = selectedConnection {
             ConnectionDetailCard(connection: connection, viewModel: viewModel)
         } else {
             EmptyDetailView()
@@ -304,44 +307,56 @@ struct ConnectionDetailCard: View {
     // MARK: 操作区
 
     private var actionSection: some View {
-        HStack(spacing: 12) {
-            // 连接按钮
-            Button {
-                viewModel.connect(to: connection, context: modelContext)
-            } label: {
-                Label("连接", systemImage: "terminal")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.accentColor)
-            .controlSize(.large)
+        VStack(spacing: 12) {
+            // 主连接按钮
+            HStack(spacing: 12) {
+                Button {
+                    viewModel.connect(to: connection, context: modelContext)
+                } label: {
+                    Label("连接", systemImage: "terminal")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .controlSize(.large)
 
-            // 复制命令
-            Button {
-                viewModel.copyCommand(for: connection)
-            } label: {
-                Label("复制命令", systemImage: "doc.on.doc")
+                Button {
+                    viewModel.connectViaTerminal(to: connection, context: modelContext)
+                } label: {
+                    Label("在终端中打开", systemImage: "apple.terminal")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
             }
-            .controlSize(.large)
-            .buttonStyle(.bordered)
 
-            // 编辑
-            Button {
-                viewModel.openEditEditor(for: connection)
-            } label: {
-                Label("编辑", systemImage: "pencil")
-            }
-            .controlSize(.large)
-            .buttonStyle(.bordered)
+            // 辅助操作
+            HStack(spacing: 12) {
+                Button {
+                    viewModel.copyCommand(for: connection)
+                } label: {
+                    Label("复制命令", systemImage: "doc.on.doc")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
 
-            // 删除
-            Button(role: .destructive) {
-                viewModel.requestDelete(id: connection.id)
-            } label: {
-                Label("删除", systemImage: "trash")
+                Button {
+                    viewModel.openEditEditor(for: connection)
+                } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+
+                Button(role: .destructive) {
+                    viewModel.requestDelete(id: connection.id)
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+
+                Spacer()
             }
-            .controlSize(.large)
-            .buttonStyle(.bordered)
         }
     }
 

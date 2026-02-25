@@ -1,9 +1,9 @@
 import Foundation
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 /// SSH 连接管理 ViewModel — 业务逻辑核心
-@Observable
+@Observable @MainActor
 final class SSHManagerViewModel {
 
     // MARK: - 状态
@@ -42,6 +42,12 @@ final class SSHManagerViewModel {
     var showDeleteConfirmation: Bool = false
     var pendingDeleteID: UUID?
 
+    /// 所有终端会话（支持多标签）
+    var sessions: [SSHProcessManager] = []
+
+    /// 当前激活的终端标签 ID
+    var activeSessionID: UUID?
+
     // MARK: - 枚举
 
     enum EditorMode {
@@ -55,9 +61,8 @@ final class SSHManagerViewModel {
         guard !searchText.isEmpty else { return connections }
         let query = searchText.lowercased()
         return connections.filter {
-            $0.name.lowercased().contains(query) ||
-            $0.host.lowercased().contains(query) ||
-            $0.username.lowercased().contains(query)
+            $0.name.lowercased().contains(query) || $0.host.lowercased().contains(query)
+                || $0.username.lowercased().contains(query)
         }
     }
 
@@ -100,16 +105,20 @@ final class SSHManagerViewModel {
     func saveConnection(context: ModelContext) {
         // 校验输入
         guard !editingName.trimmingCharacters(in: .whitespaces).isEmpty else {
-            showAlertMessage("请输入连接名称"); return
+            showAlertMessage("请输入连接名称")
+            return
         }
         guard !editingHost.trimmingCharacters(in: .whitespaces).isEmpty else {
-            showAlertMessage("请输入主机地址"); return
+            showAlertMessage("请输入主机地址")
+            return
         }
         guard let port = Int(editingPort), port > 0, port <= 65535 else {
-            showAlertMessage("端口号需在 1-65535 之间"); return
+            showAlertMessage("端口号需在 1-65535 之间")
+            return
         }
         guard !editingUsername.trimmingCharacters(in: .whitespaces).isEmpty else {
-            showAlertMessage("请输入用户名"); return
+            showAlertMessage("请输入用户名")
+            return
         }
 
         switch editorMode {
@@ -125,7 +134,8 @@ final class SSHManagerViewModel {
 
             // 存储密码到 Keychain
             if !editingPassword.isEmpty {
-                try? KeychainHelper.save(password: editingPassword, forAccount: connection.keychainAccount)
+                try? KeychainHelper.save(
+                    password: editingPassword, forAccount: connection.keychainAccount)
             }
 
             // 自动选中新连接
@@ -146,7 +156,8 @@ final class SSHManagerViewModel {
 
             // 更新 Keychain
             if !editingPassword.isEmpty {
-                try? KeychainHelper.save(password: editingPassword, forAccount: connection.keychainAccount)
+                try? KeychainHelper.save(
+                    password: editingPassword, forAccount: connection.keychainAccount)
             } else {
                 KeychainHelper.delete(forAccount: connection.keychainAccount)
             }
@@ -185,23 +196,96 @@ final class SSHManagerViewModel {
 
     // MARK: - 连接操作
 
-    /// 一键连接 — 通过 AppleScript 驱动 Terminal.app
+    /// 当前激活的会话
+    var activeSession: SSHProcessManager? {
+        guard let id = activeSessionID else { return nil }
+        return sessions.first { $0.id == id }
+    }
+
+    /// 是否有终端会话打开
+    var hasOpenSessions: Bool {
+        !sessions.isEmpty
+    }
+
+    /// 一键连接 — 使用 PTY + Process 在应用内建立 SSH 会话（纯代码方案）
+    /// 支持同时打开多个连接，每个连接一个标签页
     func connect(to connection: SSHConnection, context: ModelContext) {
         let password = KeychainHelper.retrieve(forAccount: connection.keychainAccount)
 
         // 更新上次连接时间
         connection.lastConnectedAt = Date()
 
-        let result = AppleScriptHelper.connectViaTerminal(connection, password: password)
+        // 创建新的 SSH 会话（不断开之前的，支持多标签）
+        let session = SSHProcessManager(
+            name: connection.name,
+            summary: connection.summary
+        )
+        session.connect(
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            password: password
+        )
+        sessions.append(session)
+        activeSessionID = session.id
+    }
 
+    /// 通过 Terminal.app 打开连接（备选方案）
+    func connectViaTerminal(to connection: SSHConnection, context: ModelContext) {
+        let password = KeychainHelper.retrieve(forAccount: connection.keychainAccount)
+        connection.lastConnectedAt = Date()
+
+        let result = AppleScriptHelper.connectViaTerminal(connection, password: password)
         switch result {
         case .success:
             connectingToast = "已在终端打开: \(connection.name)"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 self?.connectingToast = nil
             }
         case .failure(let error):
             showAlertMessage("连接失败: \(error.localizedDescription)")
+        }
+    }
+
+    /// 关闭指定终端标签
+    func closeSession(id: UUID) {
+        if let idx = sessions.firstIndex(where: { $0.id == id }) {
+            sessions[idx].disconnect()
+            sessions.remove(at: idx)
+
+            // 切换到相邻标签
+            if activeSessionID == id {
+                if !sessions.isEmpty {
+                    let newIdx = min(idx, sessions.count - 1)
+                    activeSessionID = sessions[newIdx].id
+                } else {
+                    activeSessionID = nil
+                }
+            }
+        }
+    }
+
+    /// 关闭当前激活的终端
+    func closeActiveSession() {
+        if let id = activeSessionID {
+            closeSession(id: id)
+        }
+    }
+
+    /// 关闭所有终端
+    func closeAllSessions() {
+        for session in sessions {
+            session.disconnect()
+        }
+        sessions.removeAll()
+        activeSessionID = nil
+    }
+
+    /// 切换到指定标签
+    func switchToSession(id: UUID) {
+        if sessions.contains(where: { $0.id == id }) {
+            activeSessionID = id
         }
     }
 
@@ -210,7 +294,8 @@ final class SSHManagerViewModel {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(connection.sshCommand, forType: .string)
         connectingToast = "已复制到剪贴板"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             self?.connectingToast = nil
         }
     }

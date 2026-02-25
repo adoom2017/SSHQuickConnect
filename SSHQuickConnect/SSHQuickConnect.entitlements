@@ -3,19 +3,8 @@
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
-	<key>com.apple.security.scripting-targets</key>
-	<dict>
-		<key>com.apple.Terminal</key>
-		<array>
-			<string>com.apple.Terminal.shell-script</string>
-		</array>
-	</dict>
+	<false/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
-	<key>com.apple.security.temporary-exception.apple-events</key>
-	<array>
-		<string>com.apple.Terminal</string>
-	</array>
 </dict>
 </plist>

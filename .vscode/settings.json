@@ -1,5 +1,8 @@
 {
     "chat.tools.terminal.autoApprove": {
         "mkdir": true
-    }
+    },
+    "swift.sourcekit-lsp.serverArguments": [
+        "--default-workspace-type", "buildServer"
+    ]
 }
