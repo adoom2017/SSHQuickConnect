@@ -9,7 +9,7 @@ final class SFTPManager: @unchecked Sendable {
     // MARK: - 远程文件模型
 
     struct RemoteFile: Identifiable, Hashable {
-        let id = UUID()
+        var id: String { path }
         let name: String
         let path: String
         let isDirectory: Bool
@@ -104,6 +104,32 @@ final class SFTPManager: @unchecked Sendable {
         self.password = password
     }
 
+    /// SSH ControlMaster socket 路径（复用连接，避免重复握手）
+    private var controlPath: String {
+        let h = host.replacingOccurrences(of: "/", with: "_")
+        return "/tmp/.sshqc_ctrl_\(username)@\(h):\(port)"
+    }
+
+    /// ControlMaster 公共参数
+    private var controlMasterArgs: [String] {
+        [
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=\(controlPath)",
+            "-o", "ControlPersist=600",
+        ]
+    }
+
+    /// 断开 SSH ControlMaster 持久连接
+    func disconnect() {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        proc.arguments = ["-O", "exit", "-o", "ControlPath=\(controlPath)", "\(username)@\(host)"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+    }
+
     // MARK: - 目录操作
 
     /// 列出指定目录内容
@@ -114,14 +140,16 @@ final class SFTPManager: @unchecked Sendable {
 
         Task.detached { [self] in
             do {
+                // ~ 不能放在单引号内，否则不会被 shell 展开
+                let safePath = (targetPath == "~") ? "$HOME" : "'\(targetPath)'"
                 let result = try await self.executeRemoteCommand(
-                    "ls -la '\(targetPath)' 2>/dev/null || echo 'SSHQC_ERROR'")
+                    "ls -la \(safePath) 2>/dev/null || echo 'SSHQC_ERROR'")
 
                 let parsed = self.parseLsOutput(result, basePath: targetPath)
                 let resolvedPath: String
                 if targetPath == "~" {
                     // 解析 ~ 的实际路径
-                    let pwdResult = try await self.executeRemoteCommand("cd '\(targetPath)' && pwd")
+                    let pwdResult = try await self.executeRemoteCommand("echo $HOME")
                     resolvedPath = pwdResult.trimmingCharacters(in: .whitespacesAndNewlines)
                 } else {
                     resolvedPath = targetPath
@@ -178,8 +206,9 @@ final class SFTPManager: @unchecked Sendable {
         errorMessage = nil
         Task.detached { [self] in
             do {
+                let safePath = (path == "~") ? "$HOME" : "'\(path)'"
                 let result = try await self.executeRemoteCommand(
-                    "ls -la '\(path)' 2>/dev/null || echo 'SSHQC_ERROR'")
+                    "ls -la \(safePath) 2>/dev/null || echo 'SSHQC_ERROR'")
                 let parsed = self.parseLsOutput(result, basePath: path)
                 await MainActor.run {
                     self.files = parsed
@@ -361,6 +390,7 @@ final class SFTPManager: @unchecked Sendable {
         if port != 22 {
             args += ["-p", String(port)]
         }
+        args += controlMasterArgs
         args += ["-o", "StrictHostKeyChecking=accept-new"]
         args += ["-o", "BatchMode=no"]
         if password != nil && !(password?.isEmpty ?? true) {
@@ -391,6 +421,10 @@ final class SFTPManager: @unchecked Sendable {
         proc.standardError = errPipe
 
         try proc.run()
+
+        // 先读取管道数据再等待进程结束，防止管道缓冲区满导致死锁
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         proc.waitUntilExit()
 
         // 清理 askpass 临时脚本
@@ -398,11 +432,9 @@ final class SFTPManager: @unchecked Sendable {
             try? FileManager.default.removeItem(atPath: path)
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""
 
         if proc.terminationStatus != 0 {
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
             let errOutput = String(data: errData, encoding: .utf8) ?? ""
             throw NSError(
                 domain: "SFTP", code: Int(proc.terminationStatus),
@@ -427,12 +459,13 @@ final class SFTPManager: @unchecked Sendable {
         var args: [String] = []
         if recursive { args.append("-r") }
         if port != 22 { args += ["-P", String(port)] }
+        args += controlMasterArgs
         args += ["-o", "StrictHostKeyChecking=accept-new"]
         if password != nil && !(password?.isEmpty ?? true) {
             args += ["-o", "PubkeyAuthentication=no"]
             args += ["-o", "PreferredAuthentications=keyboard-interactive,password"]
         }
-        args += ["\(username)@\(host):'\(remotePath)'", localPath]
+        args += ["\(username)@\(host):\(remotePath)", localPath]
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/scp")
@@ -472,12 +505,13 @@ final class SFTPManager: @unchecked Sendable {
 
         var args: [String] = []
         if port != 22 { args += ["-P", String(port)] }
+        args += controlMasterArgs
         args += ["-o", "StrictHostKeyChecking=accept-new"]
         if password != nil && !(password?.isEmpty ?? true) {
             args += ["-o", "PubkeyAuthentication=no"]
             args += ["-o", "PreferredAuthentications=keyboard-interactive,password"]
         }
-        args += [localPath, "\(username)@\(host):'\(remotePath)'"]
+        args += [localPath, "\(username)@\(host):\(remotePath)"]
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/scp")

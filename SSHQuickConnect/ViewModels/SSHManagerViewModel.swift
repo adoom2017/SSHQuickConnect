@@ -337,6 +337,10 @@ final class SSHManagerViewModel {
 
     /// 关闭 SFTP 文件浏览器
     func closeSFTP() {
+        if let id = activeSFTPConnectionID, let manager = sftpManagers[id] {
+            manager.disconnect()
+            sftpManagers.removeValue(forKey: id)
+        }
         activeSFTPConnectionID = nil
         activeSFTPConnectionName = ""
     }

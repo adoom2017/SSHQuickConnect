@@ -1,4 +1,32 @@
+import AppKit
 import SwiftUI
+
+// MARK: - 双击检测（不干扰 List 单击选择）
+
+private class DoubleClickNSView: NSView {
+    var onDoubleClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        if event.clickCount == 2 {
+            onDoubleClick?()
+        }
+    }
+}
+
+private struct DoubleClickOverlay: NSViewRepresentable {
+    let onDoubleClick: () -> Void
+
+    func makeNSView(context: Context) -> DoubleClickNSView {
+        let view = DoubleClickNSView()
+        view.onDoubleClick = onDoubleClick
+        return view
+    }
+
+    func updateNSView(_ nsView: DoubleClickNSView, context: Context) {
+        nsView.onDoubleClick = onDoubleClick
+    }
+}
 
 /// SFTP 远程文件浏览器视图
 struct SFTPBrowserView: View {
@@ -6,7 +34,7 @@ struct SFTPBrowserView: View {
     let connectionName: String
     let onClose: () -> Void
 
-    @State private var selectedFiles: Set<UUID> = []
+    @State private var selectedFileID: String?
     @State private var pathInput: String = ""
     @State private var showPathEditor: Bool = false
 
@@ -206,7 +234,7 @@ struct SFTPBrowserView: View {
     }
 
     private var fileTable: some View {
-        List(selection: $selectedFiles) {
+        List(selection: $selectedFileID) {
             // 表头
             HStack(spacing: 0) {
                 Text("名称")
@@ -228,19 +256,38 @@ struct SFTPBrowserView: View {
             ForEach(sftpManager.files) { file in
                 FileRowView(file: file)
                     .tag(file.id)
-                    .onTapGesture(count: 2) {
-                        if file.isDirectory {
-                            sftpManager.enterDirectory(file)
-                        } else {
-                            sftpManager.downloadFile(file)
+                    .overlay(
+                        DoubleClickOverlay {
+                            openFile(file)
                         }
-                    }
+                    )
                     .contextMenu {
                         fileContextMenu(file)
                     }
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .onKeyPress(.return) {
+            openSelectedFile()
+            return .handled
+        }
+    }
+
+    /// 打开文件/进入目录
+    private func openFile(_ file: SFTPManager.RemoteFile) {
+        if file.isDirectory {
+            sftpManager.enterDirectory(file)
+        } else {
+            sftpManager.downloadFile(file)
+        }
+    }
+
+    /// 打开当前选中项
+    private func openSelectedFile() {
+        guard let id = selectedFileID,
+            let file = sftpManager.files.first(where: { $0.id == id })
+        else { return }
+        openFile(file)
     }
 
     // MARK: - 右键菜单
