@@ -17,6 +17,8 @@
 		AA000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100008; };
 		AA000009 /* SSHProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100011; };
 		AA000010 /* SSHTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100012; };
+		AA000011 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100013; };
+		AA000012 /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100014; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +34,8 @@
 		AA100010 /* SSHQuickConnect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SSHQuickConnect.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA100011 /* SSHProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHProcessManager.swift; sourceTree = "<group>"; };
 		AA100012 /* SSHTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTerminalView.swift; sourceTree = "<group>"; };
+		AA100013 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
+		AA100014 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +85,7 @@
 				AA100005 /* KeychainHelper.swift */,
 				AA100006 /* AppleScriptHelper.swift */,
 				AA100011 /* SSHProcessManager.swift */,
+				AA100013 /* SFTPManager.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -99,6 +104,7 @@
 				AA100002 /* ContentView.swift */,
 				AA100003 /* ConnectionEditorSheet.swift */,
 				AA100012 /* SSHTerminalView.swift */,
+				AA100014 /* SFTPBrowserView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -198,6 +204,8 @@
 				AA000007 /* SSHManagerViewModel.swift in Sources */,
 				AA000009 /* SSHProcessManager.swift in Sources */,
 				AA000010 /* SSHTerminalView.swift in Sources */,
+				AA000011 /* SFTPManager.swift in Sources */,
+				AA000012 /* SFTPBrowserView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

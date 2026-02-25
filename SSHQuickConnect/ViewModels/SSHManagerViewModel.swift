@@ -48,6 +48,15 @@ final class SSHManagerViewModel {
     /// 当前激活的终端标签 ID
     var activeSessionID: UUID?
 
+    /// SFTP 管理器（按连接 ID 缓存）
+    var sftpManagers: [UUID: SFTPManager] = [:]
+
+    /// 当前显示 SFTP 的连接 ID（nil 表示不显示 SFTP）
+    var activeSFTPConnectionID: UUID?
+
+    /// SFTP 显示的连接名称
+    var activeSFTPConnectionName: String = ""
+
     // MARK: - 枚举
 
     enum EditorMode {
@@ -298,6 +307,44 @@ final class SSHManagerViewModel {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             self?.connectingToast = nil
         }
+    }
+
+    // MARK: - SFTP 操作
+
+    /// 是否正在显示 SFTP 文件浏览器
+    var isShowingSFTP: Bool {
+        activeSFTPConnectionID != nil
+    }
+
+    /// 打开 SFTP 文件浏览器
+    func openSFTP(for connection: SSHConnection) {
+        let password = KeychainHelper.retrieve(forAccount: connection.keychainAccount)
+
+        // 复用已有的 manager，否则新建
+        if sftpManagers[connection.id] == nil {
+            let manager = SFTPManager(
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                password: password
+            )
+            sftpManagers[connection.id] = manager
+        }
+
+        activeSFTPConnectionID = connection.id
+        activeSFTPConnectionName = connection.name
+    }
+
+    /// 关闭 SFTP 文件浏览器
+    func closeSFTP() {
+        activeSFTPConnectionID = nil
+        activeSFTPConnectionName = ""
+    }
+
+    /// 获取当前活跃的 SFTP Manager
+    var activeSFTPManager: SFTPManager? {
+        guard let id = activeSFTPConnectionID else { return nil }
+        return sftpManagers[id]
     }
 
     // MARK: - 工具方法

@@ -7,7 +7,9 @@ enum AppleScriptHelper {
 
     /// 通过 Terminal.app 打开新窗口并执行 SSH 连接
     @discardableResult
-    static func connectViaTerminal(_ connection: SSHConnection, password: String?) -> Result<Void, Error> {
+    static func connectViaTerminal(_ connection: SSHConnection, password: String?) -> Result<
+        Void, Error
+    > {
         let safeName = appleScriptEscape(connection.name)
         let sshCmd = connection.sshCommand
         let script: String
@@ -15,27 +17,29 @@ enum AppleScriptHelper {
         if let password = password, !password.isEmpty {
             // 从 Swift 端创建临时启动脚本 — 密码只存在于文件中，不出现在终端命令行
             guard let launcherPath = createLauncherScript(sshCmd: sshCmd, password: password) else {
-                return .failure(NSError(domain: "AppleScript", code: -3,
-                                        userInfo: [NSLocalizedDescriptionKey: "无法创建临时脚本"]))
+                return .failure(
+                    NSError(
+                        domain: "AppleScript", code: -3,
+                        userInfo: [NSLocalizedDescriptionKey: "无法创建临时脚本"]))
             }
 
             // AppleScript 只执行一个干净的命令，密码完全隐藏
             script = """
-            tell application "Terminal"
-                activate
-                do script "clear; bash '\(launcherPath)'"
-                set custom title of front window to "\(safeName)"
-            end tell
-            """
+                tell application "Terminal"
+                    activate
+                    do script "clear; bash '\(launcherPath)'"
+                    set custom title of front window to "\(safeName)"
+                end tell
+                """
         } else {
             // 无密码 — 直接执行 SSH 命令，结束后退出 shell
             script = """
-            tell application "Terminal"
-                activate
-                do script "clear && \(sshCmd); exit"
-                set custom title of front window to "\(safeName)"
-            end tell
-            """
+                tell application "Terminal"
+                    activate
+                    do script "clear && \(sshCmd); exit"
+                    set custom title of front window to "\(safeName)"
+                end tell
+                """
         }
 
         return executeAppleScript(script)
@@ -46,12 +50,12 @@ enum AppleScriptHelper {
     static func openSSHInTerminal(_ connection: SSHConnection) -> Result<Void, Error> {
         let safeName = appleScriptEscape(connection.name)
         let script = """
-        tell application "Terminal"
-            activate
-            do script "clear && \(connection.sshCommand); exit"
-            set custom title of front window to "\(safeName)"
-        end tell
-        """
+            tell application "Terminal"
+                activate
+                do script "clear && \(connection.sshCommand); exit"
+                set custom title of front window to "\(safeName)"
+            end tell
+            """
         return executeAppleScript(script)
     }
 
@@ -69,23 +73,24 @@ enum AppleScriptHelper {
         let escapedPwd = password.replacingOccurrences(of: "'", with: "'\\''")
 
         let scriptContent = """
-        #!/bin/bash
-        # 创建 askpass 脚本
-        cat > '\(askpassPath)' << 'ASKPASS_EOF'
-        #!/bin/sh
-        echo '\(escapedPwd)'
-        ASKPASS_EOF
-        chmod 700 '\(askpassPath)'
+            #!/bin/bash
+            # 注册 trap — 无论正常退出、关闭窗口(SIGHUP)还是中断(SIGINT)，都确保清理临时文件
+            cleanup() {
+                rm -f '\(askpassPath)' '\(launcherPath)'
+            }
+            trap cleanup EXIT HUP INT TERM
 
-        # 执行 SSH（SSH_ASKPASS_REQUIRE=force 强制使用 askpass，即使有 TTY）
-        SSH_ASKPASS='\(askpassPath)' SSH_ASKPASS_REQUIRE=force DISPLAY=:0 \(sshCmd)
+            # 创建 askpass 脚本
+            cat > '\(askpassPath)' << 'ASKPASS_EOF'
+            #!/bin/sh
+            echo '\(escapedPwd)'
+            ASKPASS_EOF
+            chmod 700 '\(askpassPath)'
 
-        # 清理所有临时文件
-        rm -f '\(askpassPath)' '\(launcherPath)'
-
-        # 退出 shell
-        exit
-        """
+            # 执行 SSH（SSH_ASKPASS_REQUIRE=force 强制使用 askpass，即使有 TTY）
+            SSH_ASKPASS='\(askpassPath)' SSH_ASKPASS_REQUIRE=force DISPLAY=:0 \(sshCmd)
+            # trap 会在脚本退出时自动执行 cleanup
+            """
 
         do {
             try scriptContent.write(toFile: launcherPath, atomically: true, encoding: .utf8)
@@ -108,8 +113,10 @@ enum AppleScriptHelper {
     /// 执行 AppleScript
     private static func executeAppleScript(_ source: String) -> Result<Void, Error> {
         guard let appleScript = NSAppleScript(source: source) else {
-            return .failure(NSError(domain: "AppleScript", code: -1,
-                                    userInfo: [NSLocalizedDescriptionKey: "无法创建 AppleScript 对象"]))
+            return .failure(
+                NSError(
+                    domain: "AppleScript", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "无法创建 AppleScript 对象"]))
         }
 
         var error: NSDictionary?
@@ -117,8 +124,10 @@ enum AppleScriptHelper {
 
         if let error = error {
             let message = error[NSAppleScript.errorMessage] as? String ?? "未知 AppleScript 错误"
-            return .failure(NSError(domain: "AppleScript", code: -2,
-                                    userInfo: [NSLocalizedDescriptionKey: message]))
+            return .failure(
+                NSError(
+                    domain: "AppleScript", code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: message]))
         }
 
         return .success(())

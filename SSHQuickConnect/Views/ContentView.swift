@@ -1,5 +1,5 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 /// 主界面 — NavigationSplitView 布局
 struct ContentView: View {
@@ -87,6 +87,12 @@ struct SidebarView: View {
                             }
 
                             Button {
+                                viewModel.openSFTP(for: connection)
+                            } label: {
+                                Label("文件管理", systemImage: "folder")
+                            }
+
+                            Button {
                                 viewModel.copyCommand(for: connection)
                             } label: {
                                 Label("复制命令", systemImage: "doc.on.doc")
@@ -110,7 +116,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $viewModel.searchText, prompt: "搜索连接...")
+        .searchable(text: $viewModel.searchText, placement: .sidebar, prompt: "搜索连接...")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -161,16 +167,16 @@ struct ConnectionRow: View {
 
     private func colorForTag(_ tag: TagColor) -> Color {
         switch tag {
-        case .blue:   return .blue
+        case .blue: return .blue
         case .purple: return .purple
-        case .pink:   return .pink
-        case .red:    return .red
+        case .pink: return .pink
+        case .red: return .red
         case .orange: return .orange
         case .yellow: return .yellow
-        case .green:  return .green
-        case .mint:   return .mint
-        case .teal:   return .teal
-        case .cyan:   return .cyan
+        case .green: return .green
+        case .mint: return .mint
+        case .teal: return .teal
+        case .cyan: return .cyan
         }
     }
 }
@@ -189,7 +195,15 @@ struct DetailView: View {
     }
 
     var body: some View {
-        if viewModel.hasOpenSessions {
+        if let sftpManager = viewModel.activeSFTPManager {
+            // 显示 SFTP 文件浏览器
+            SFTPBrowserView(
+                sftpManager: sftpManager,
+                connectionName: viewModel.activeSFTPConnectionName
+            ) {
+                viewModel.closeSFTP()
+            }
+        } else if viewModel.hasOpenSessions {
             // 显示多标签终端
             SSHTerminalView(viewModel: viewModel)
         } else if let connection = selectedConnection {
@@ -287,20 +301,26 @@ struct ConnectionDetailCard: View {
     // MARK: 信息区
 
     private var infoSection: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible(), alignment: .leading),
-            GridItem(.flexible(), alignment: .leading)
-        ], spacing: 16) {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), alignment: .leading),
+                GridItem(.flexible(), alignment: .leading),
+            ], spacing: 16
+        ) {
             InfoItem(icon: "globe", title: "主机地址", value: connection.host)
             InfoItem(icon: "number", title: "端口", value: String(connection.port))
             InfoItem(icon: "person", title: "用户名", value: connection.username)
             InfoItem(icon: "key", title: "密码", value: hasPassword ? "●●●●●●●● (已保存)" : "未设置")
 
             if let last = connection.lastConnectedAt {
-                InfoItem(icon: "clock", title: "上次连接", value: last.formatted(date: .abbreviated, time: .shortened))
+                InfoItem(
+                    icon: "clock", title: "上次连接",
+                    value: last.formatted(date: .abbreviated, time: .shortened))
             }
 
-            InfoItem(icon: "calendar", title: "创建时间", value: connection.createdAt.formatted(date: .abbreviated, time: .shortened))
+            InfoItem(
+                icon: "calendar", title: "创建时间",
+                value: connection.createdAt.formatted(date: .abbreviated, time: .shortened))
         }
     }
 
@@ -332,6 +352,14 @@ struct ConnectionDetailCard: View {
             // 辅助操作
             HStack(spacing: 12) {
                 Button {
+                    viewModel.openSFTP(for: connection)
+                } label: {
+                    Label("文件管理", systemImage: "folder")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+
+                Button {
                     viewModel.copyCommand(for: connection)
                 } label: {
                     Label("复制命令", systemImage: "doc.on.doc")
@@ -362,16 +390,16 @@ struct ConnectionDetailCard: View {
 
     private func colorForTag(_ tag: TagColor) -> Color {
         switch tag {
-        case .blue:   return .blue
+        case .blue: return .blue
         case .purple: return .purple
-        case .pink:   return .pink
-        case .red:    return .red
+        case .pink: return .pink
+        case .red: return .red
         case .orange: return .orange
         case .yellow: return .yellow
-        case .green:  return .green
-        case .mint:   return .mint
-        case .teal:   return .teal
-        case .cyan:   return .cyan
+        case .green: return .green
+        case .mint: return .mint
+        case .teal: return .teal
+        case .cyan: return .cyan
         }
     }
 }
