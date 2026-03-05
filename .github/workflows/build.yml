@@ -1,0 +1,84 @@
+name: Build macOS DMG
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Package
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Build Archive
+        run: |
+          xcodebuild archive \
+            -project SSHQuickConnect.xcodeproj \
+            -scheme SSHQuickConnect \
+            -configuration Release \
+            -archivePath "${{ runner.temp }}/SSHQuickConnect.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || true
+
+      - name: Export .app
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "${{ runner.temp }}/SSHQuickConnect.xcarchive" \
+            -exportPath "${{ runner.temp }}/export" \
+            -exportOptionsPlist .github/ExportOptions.plist
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(defaults read "$(pwd)/SSHQuickConnect/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "1.0")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Create DMG
+        run: |
+          APP_PATH="${{ runner.temp }}/export/SSHQuickConnect.app"
+          DMG_NAME="SSHQuickConnect-${{ steps.version.outputs.version }}.dmg"
+          DMG_PATH="${{ runner.temp }}/${DMG_NAME}"
+
+          # Create a temporary folder for DMG contents
+          TMP_DIR=$(mktemp -d)
+          cp -R "${APP_PATH}" "${TMP_DIR}/"
+          ln -s /Applications "${TMP_DIR}/Applications"
+
+          # Create DMG
+          hdiutil create \
+            -volname "SSHQuickConnect" \
+            -srcfolder "${TMP_DIR}" \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+
+          echo "dmg_path=${DMG_PATH}" >> $GITHUB_ENV
+          echo "dmg_name=${DMG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.dmg_name }}
+          path: ${{ env.dmg_path }}
+          retention-days: 30
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.dmg_path }}
+          generate_release_notes: true
